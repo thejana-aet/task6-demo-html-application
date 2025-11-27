@@ -5,13 +5,13 @@ pipeline {
         
         AWS_ACCOUNT_ID = '041360578609'    
         AWS_REGION     = 'us-east-1'              
-        ECR_REPO_NAME  = 'task6-thejana-ecr'
+        ECR_REPO_NAME  = 'task6-thejana-prod-ecr'
 
-        // --- FARGATE RESOURCES (Must match what we created) ---
-        ECS_CLUSTER    = 'Task6-Thejana-Dev-Cluster'
-        ECS_SERVICE    = 'Task6-Thejana-TaskDefinition-service'        
+        // --- FARGATE RESOURCES ---
+        ECS_CLUSTER    = 'Task6-Thejana-Prod-Cluster'
+        ECS_SERVICE    = 'Task6-Thejana-Prod-TaskDefinition-service'        
         
-        // --- DERIVED VARIABLES (Do not change) ---
+        // --- DERIVED VARIABLES ---
         ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         IMAGE_TAG      = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${env.BUILD_NUMBER}"
         IMAGE_LATEST   = "${ECR_REGISTRY}/${ECR_REPO_NAME}:latest"
@@ -31,7 +31,6 @@ pipeline {
                     
                     sh "docker build -t ${IMAGE_TAG} ."
                     
-                    // Tag as 'latest' so ECS always pulls this one
                     sh "docker tag ${IMAGE_TAG} ${IMAGE_LATEST}"
                 }
             }
@@ -41,7 +40,7 @@ pipeline {
             steps {
                 script {
                     echo 'Logging into Amazon ECR...'
-                    // Uses the IAM Role attached to the EC2 instance (No secret keys needed)
+                    // Uses the IAM Role attached to the EC2 instance
                     sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                 }
             }
@@ -61,7 +60,6 @@ pipeline {
             steps {
                 script {
                     echo "Forcing deployment on service: ${ECS_SERVICE}..."
-                    // This tells ECS: "Pull the new 'latest' image and restart the containers"
                     sh "aws ecs update-service --cluster ${ECS_CLUSTER} --service ${ECS_SERVICE} --force-new-deployment --region ${AWS_REGION}"
                 }
             }
