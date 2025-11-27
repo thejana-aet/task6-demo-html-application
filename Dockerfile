@@ -1,7 +1,7 @@
-# Use a lightweight web server
+# Lightweight web server
 FROM nginx:alpine
 
-# Copy your HTML files into Nginx's public directory
+# Copy the HTML files into Nginx's public directory
 COPY . /usr/share/nginx/html
 
 # Expose port 80
