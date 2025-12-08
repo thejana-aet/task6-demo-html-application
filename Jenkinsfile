@@ -9,7 +9,8 @@ pipeline {
 
         // --- FARGATE RESOURCES ---
         ECS_CLUSTER    = 'Task6-Thejana-Dev-Cluster'
-        ECS_SERVICE    = 'Task6-Thejana-TaskDefinition-service'        
+        ECS_SERVICE    = 'Task6-Thejana-TaskDefinition-service' 
+        ECS_TASK_DEF_FAMILY='Task6-Thejana-TaskDefinition'       
         
         // --- DERIVED VARIABLES ---
         ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -59,11 +60,35 @@ pipeline {
         stage('Deploy to ECS Fargate') {
             steps {
                 script {
-                    echo "Forcing deployment on service: ${ECS_SERVICE}..."
-                    sh "aws ecs update-service --cluster ${ECS_CLUSTER} --service ${ECS_SERVICE} --force-new-deployment --region ${AWS_REGION}"
+                    sh """
+                    
+                        echo "Fetching and updating Task Definition: \${ECS_TASK_DEF_FAMILY}..."
+                        
+                        # 1. Describe, Modify (with jq), and Register a new Task Definition revision
+                        NEW_TASK_INFO=\$(
+                            aws ecs describe-task-definition --task-definition \${ECS_TASK_DEF_FAMILY} --region ${AWS_REGION} |
+                            jq --arg IMAGE "${ECR_REGISTRY}/${ECR_REPO_NAME}:\${BUILD_NUMBER}" \
+                                '.taskDefinition | 
+                                 .containerDefinitions[0].image = \$IMAGE | 
+                                 del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' |
+                            aws ecs register-task-definition --region ${AWS_REGION} --cli-input-json file:///dev/stdin
+                        )
+                        
+                        # 2. Extract the new revision number
+                        NEW_REVISION=\$(echo \$NEW_TASK_INFO | jq -r '.taskDefinition.revision')
+                        
+                        echo "Registered new Task Definition revision: \${NEW_REVISION}. Updating service..."
+                        
+                        # 3. Update the ECS Service to use the new revision
+                        aws ecs update-service \
+                            --cluster ${ECS_CLUSTER} \
+                            --service ${ECS_SERVICE} \
+                            --task-definition \${ECS_TASK_DEF_FAMILY}:\${NEW_REVISION} \
+                            --force-new-deployment \
+                            --region ${AWS_REGION}
+                    """
                 }
             }
-        }
     }
 
     post {
@@ -79,4 +104,7 @@ pipeline {
             sh "docker rmi ${IMAGE_LATEST} || true"
         }
     }
+    
+  }
+
 }
