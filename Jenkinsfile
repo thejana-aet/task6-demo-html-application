@@ -3,14 +3,14 @@ pipeline {
 
     environment {
         
-        AWS_ACCOUNT_ID = params.AWS_ACCOUNT_ID    
-        AWS_REGION     = params.AWS_REGION              
-        ECR_REPO_NAME  = params.ECR_REPO_NAME
+        AWS_ACCOUNT_ID = "${params.AWS_ACCOUNT_ID}"    
+        AWS_REGION     = "${params.AWS_REGION}"              
+        ECR_REPO_NAME  = "${params.ECR_REPO_NAME}"
 
         // --- FARGATE RESOURCES ---
-        ECS_CLUSTER    = params.ECS_CLUSTER
-        ECS_SERVICE    = params.ECS_SERVICE 
-        ECS_TASK_DEF_FAMILY= params.ECS_TASK_DEF_FAMILY     
+        ECS_CLUSTER    = "${params.ECS_CLUSTER}"
+        ECS_SERVICE    = "${params.ECS_SERVICE}" 
+        ECS_TASK_DEF_FAMILY= "${params.ECS_TASK_DEF_FAMILY}"     
         
         // --- DERIVED VARIABLES ---
         ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
