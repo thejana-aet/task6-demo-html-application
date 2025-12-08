@@ -3,14 +3,14 @@ pipeline {
 
     environment {
         
-        AWS_ACCOUNT_ID = '041360578609'    
-        AWS_REGION     = 'us-east-1'              
-        ECR_REPO_NAME  = 'task6-thejana-prod-ecr'
+        AWS_ACCOUNT_ID = "${params.AWS_ACCOUNT_ID}"    
+        AWS_REGION     = "${params.AWS_REGION}"              
+        ECR_REPO_NAME  = "${params.ECR_REPO_NAME}"
 
         // --- FARGATE RESOURCES ---
-        ECS_CLUSTER    = 'Task6-Thejana-Prod-Cluster'
-        ECS_SERVICE    = 'Task6-Thejana-Prod-TaskDefinition-service'
-        ECS_TASK_DEF_FAMILY='Task6-Thejana-Prod-TaskDefinition'       
+        ECS_CLUSTER    = "${params.ECS_CLUSTER}"
+        ECS_SERVICE    = "${params.ECS_SERVICE}" 
+        ECS_TASK_DEF_FAMILY= "${params.ECS_TASK_DEF_FAMILY}"       
         
         // --- DERIVED VARIABLES ---
         ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
