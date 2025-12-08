@@ -60,33 +60,45 @@ pipeline {
         stage('Deploy to ECS Fargate') {
             steps {
                 script {
+                    echo "Starting dynamic deployment to cluster: ${ECS_CLUSTER}..."
                     sh """
-                    
-                        echo "Fetching and updating Task Definition: \${ECS_TASK_DEF_FAMILY}..."
+                        # 1. Fetch current Task Definition JSON
+                        TASK_DEFINITION=\$(aws ecs describe-task-definition --task-definition ${ECS_TASK_DEF_FAMILY} --region ${AWS_REGION})
+
+                        # 2. Modify JSON: Update image tag and remove AWS-generated fields
+                        NEW_TASK_DEFINITION=\$( echo \$TASK_DEFINITION | jq \
+                            --arg IMAGE "${ECR_REGISTRY}/${ECR_REPO_NAME}:\${BUILD_NUMBER}" \
+                            '.taskDefinition | \
+                            .containerDefinitions[0].image = \$IMAGE | \
+                            del(.taskDefinitionArn) | \
+                            del(.revision) | \
+                            del(.status) | \
+                            del(.requiresAttributes) | \
+                            del(.compatibilities) | \
+                            del(.registeredAt) | \
+                            del(.registeredBy)' )
                         
-                        # 1. Describe, Modify (with jq), and Register a new Task Definition revision
-                        NEW_TASK_INFO=\$(
-                            aws ecs describe-task-definition --task-definition \${ECS_TASK_DEF_FAMILY} --region ${AWS_REGION} |
-                            jq --arg IMAGE "${ECR_REGISTRY}/${ECR_REPO_NAME}:\${BUILD_NUMBER}" \
-                                '.taskDefinition | 
-                                 .containerDefinitions[0].image = \$IMAGE | 
-                                 del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' |
-                            aws ecs register-task-definition --region ${AWS_REGION} --cli-input-json file:///dev/stdin
-                        )
+                        # 3. Write modified JSON to a file
+                        echo \$NEW_TASK_DEFINITION > task-def.json
+
+                        # 4. Register the new Task Definition revision
+                        NEW_TASK_INFO=\$(aws ecs register-task-definition --region ${AWS_REGION} --cli-input-json file://task-def.json)
                         
-                        # 2. Extract the new revision number
+                        # 5. Extract the new revision number
                         NEW_REVISION=\$(echo \$NEW_TASK_INFO | jq -r '.taskDefinition.revision')
                         
-                        echo "Registered new Task Definition revision: \${NEW_REVISION}. Updating service..."
-                        
-                        # 3. Update the ECS Service to use the new revision
+                        echo "Registered new Task Definition revision: \${NEW_REVISION}"
+
+                        # 6. Update the ECS Service to use the specific new revision
                         aws ecs update-service \
                             --cluster ${ECS_CLUSTER} \
                             --service ${ECS_SERVICE} \
-                            --task-definition \${ECS_TASK_DEF_FAMILY}:\${NEW_REVISION} \
+                            --task-definition ${ECS_TASK_DEF_FAMILY}:\${NEW_REVISION} \
                             --force-new-deployment \
                             --region ${AWS_REGION}
                     """
+                    // Clean up the temporary file
+                    sh 'rm -f task-def.json'
                 }
             }
         }
