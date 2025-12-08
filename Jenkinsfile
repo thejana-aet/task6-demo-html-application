@@ -89,8 +89,8 @@ pipeline {
                     """
                 }
             }
+        }
     }
-
     post {
         success {
             echo "SUCCESS: Deployed Build #${env.BUILD_NUMBER} to Fargate!"
@@ -104,7 +104,6 @@ pipeline {
             sh "docker rmi ${IMAGE_LATEST} || true"
         }
     }
+}    
+ 
     
-  }
-
-}
