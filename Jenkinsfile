@@ -3,15 +3,13 @@ pipeline {
 
     environment {
         
-        AWS_ACCOUNT_ID = "${params.AWS_ACCOUNT_ID}"    
-        AWS_REGION     = "${params.AWS_REGION}"              
-        ECR_REPO_NAME  = "${params.ECR_REPO_NAME}"
+        AWS_ACCOUNT_ID = credentials('AWS_ACCOUNT_ID')
+        AWS_REGION     = credentials('AWS_REGION')
+        ECR_REPO_NAME  = credentials('PROD_ECR_REPO_NAME')
+        S3_BUCKET      = credentials('PROD_S3_BUCKET')
+        EB_APP_NAME    = credentials('EB_APP_NAME')
+        EB_ENV_NAME    = credentials('PROD_EB_ENV_NAME')
 
-        // --- FARGATE RESOURCES ---
-        ECS_CLUSTER    = "${params.ECS_CLUSTER}"
-        ECS_SERVICE    = "${params.ECS_SERVICE}" 
-        ECS_TASK_DEF_FAMILY= "${params.ECS_TASK_DEF_FAMILY}"       
-        
         // --- DERIVED VARIABLES ---
         ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         IMAGE_TAG      = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${env.BUILD_NUMBER}"
@@ -29,9 +27,7 @@ pipeline {
             steps {
                 script {
                     echo 'Building Docker Image...'
-                    
                     sh "docker build -t ${IMAGE_TAG} ."
-                    
                     sh "docker tag ${IMAGE_TAG} ${IMAGE_LATEST}"
                 }
             }
@@ -41,7 +37,6 @@ pipeline {
             steps {
                 script {
                     echo 'Logging into Amazon ECR...'
-                    // Uses the IAM Role attached to the EC2 instance
                     sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                 }
             }
@@ -57,48 +52,34 @@ pipeline {
             }
         }
 
-        stage('Deploy to ECS Fargate') {
+        stage('Deploy to Elastic Beanstalk') {
             steps {
                 script {
-                    echo "Starting dynamic deployment to cluster: ${ECS_CLUSTER}..."
+                    echo "Starting deployment to Beanstalk Environment: ${EB_ENV_NAME}..."
+                    
                     sh """
-                        # 1. Fetch current Task Definition JSON
-                        TASK_DEFINITION=\$(aws ecs describe-task-definition --task-definition ${ECS_TASK_DEF_FAMILY} --region ${AWS_REGION})
+                        # 1. Update the Dockerrun.aws.json image name dynamically
+                        sed -i "s|<IMAGE_PLACEHOLDER>|${IMAGE_TAG}|g" Dockerrun.aws.json
 
-                        # 2. Modify JSON: Update image tag and remove AWS-generated fields
-                        NEW_TASK_DEFINITION=\$( echo \$TASK_DEFINITION | jq \
-                            --arg IMAGE "${ECR_REGISTRY}/${ECR_REPO_NAME}:\${BUILD_NUMBER}" \
-                            '.taskDefinition | \
-                            .containerDefinitions[0].image = \$IMAGE | \
-                            del(.taskDefinitionArn) | \
-                            del(.revision) | \
-                            del(.status) | \
-                            del(.requiresAttributes) | \
-                            del(.compatibilities) | \
-                            del(.registeredAt) | \
-                            del(.registeredBy)' )
-                        
-                        # 3. Write modified JSON to a file
-                        echo \$NEW_TASK_DEFINITION > task-def.json
+                        # 2. Zip the manifest for Beanstalk
+                        zip deploy.zip Dockerrun.aws.json
 
-                        # 4. Register the new Task Definition revision
-                        NEW_TASK_INFO=\$(aws ecs register-task-definition --region ${AWS_REGION} --cli-input-json file://task-def.json)
-                        
-                        # 5. Extract the new revision number
-                        NEW_REVISION=\$(echo \$NEW_TASK_INFO | jq -r '.taskDefinition.revision')
-                        
-                        echo "Registered new Task Definition revision: \${NEW_REVISION}"
+                        # 3. Upload the source bundle to S3
+                        aws s3 cp deploy.zip s3://${S3_BUCKET}/deploy-${BUILD_NUMBER}.zip
 
-                        # 6. Update the ECS Service to use the specific new revision
-                        aws ecs update-service \
-                            --cluster ${ECS_CLUSTER} \
-                            --service ${ECS_SERVICE} \
-                            --task-definition ${ECS_TASK_DEF_FAMILY}:\${NEW_REVISION} \
-                            --force-new-deployment \
+                        # 4. Create new Application Version
+                        aws elasticbeanstalk create-application-version \
+                            --application-name ${EB_APP_NAME} \
+                            --version-label v${BUILD_NUMBER} \
+                            --source-bundle S3Bucket="${S3_BUCKET}",S3Key="deploy-${BUILD_NUMBER}.zip" \
+                            --region ${AWS_REGION}
+
+                        # 5. Update the Environment
+                        aws elasticbeanstalk update-environment \
+                            --environment-name ${EB_ENV_NAME} \
+                            --version-label v${BUILD_NUMBER} \
                             --region ${AWS_REGION}
                     """
-                    // Clean up the temporary file
-                    sh 'rm -f task-def.json'
                 }
             }
         }
@@ -106,15 +87,15 @@ pipeline {
 
     post {
         success {
-            echo "SUCCESS: Deployed Build #${env.BUILD_NUMBER} to Fargate!"
+            echo "SUCCESS: Deployed Build #${env.BUILD_NUMBER} to Elastic Beanstalk!"
         }
         failure {
             echo 'FAILURE: Pipeline failed. Check Jenkins logs.'
         }
         always {
-            // Clean up local images to save disk space on the Jenkins server
             sh "docker rmi ${IMAGE_TAG} || true"
             sh "docker rmi ${IMAGE_LATEST} || true"
+            sh "rm -f deploy.zip"
         }
     }
 }
