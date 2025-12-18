@@ -3,15 +3,13 @@ pipeline {
 
     environment {
         
-        AWS_ACCOUNT_ID = "${params.AWS_ACCOUNT_ID}"    
-        AWS_REGION     = "${params.AWS_REGION}"              
-        ECR_REPO_NAME  = "${params.ECR_REPO_NAME}"
+        AWS_ACCOUNT_ID = credentials('AWS_ACCOUNT_ID')
+        AWS_REGION     = credentials('AWS_REGION')
+        ECR_REPO_NAME  = credentials('DEV_ECR_REPO_NAME')
+        S3_BUCKET      = credentials('DEV_S3_BUCKET')
+        EB_APP_NAME    = credentials('EB_APP_NAME')
+        EB_ENV_NAME    = credentials('DEV_EB_ENV_NAME')
 
-        // --- BEANSTALK RESOURCES ---
-        S3_BUCKET      = "${params.S3_BUCKET}"
-        EB_APP_NAME    = "${params.EB_APP_NAME}"
-        EB_ENV_NAME    = "${params.EB_ENV_NAME}"
-        
         // --- DERIVED VARIABLES ---
         ECR_REGISTRY   = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         IMAGE_TAG      = "${ECR_REGISTRY}/${ECR_REPO_NAME}:${env.BUILD_NUMBER}"
@@ -61,7 +59,6 @@ pipeline {
                     
                     sh """
                         # 1. Update the Dockerrun.aws.json image name dynamically
-                        # This replaces the image placeholder with the actual build tag
                         sed -i "s|<IMAGE_PLACEHOLDER>|${IMAGE_TAG}|g" Dockerrun.aws.json
 
                         # 2. Zip the manifest for Beanstalk
